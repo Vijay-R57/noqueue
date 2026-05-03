@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Printer, Wifi, WifiOff, Loader2, AlertTriangle, RefreshCw } from 'lucide-react'
+import { Printer, Wifi, WifiOff, Loader2, AlertTriangle, RefreshCw, CheckCircle2, XCircle, FlaskConical } from 'lucide-react'
 
 interface PrinterStatus {
   name: string
@@ -17,6 +17,8 @@ export function PrinterStatusPanel() {
   const [status, setStatus] = useState<PrinterStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [testState, setTestState] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle')
+  const [testMessage, setTestMessage] = useState<string>('')
 
   const fetchStatus = async () => {
     try {
@@ -31,6 +33,27 @@ export function PrinterStatusPanel() {
     } finally {
       setLastRefresh(new Date())
     }
+  }
+
+  const sendTestPrint = async () => {
+    setTestState('loading')
+    setTestMessage('')
+    try {
+      const res = await fetch('http://localhost:9090/printer/test', { method: 'POST' })
+      const data = await res.json()
+      if (data.status === 'success') {
+        setTestState('success')
+        setTestMessage(`Sent to: ${data.printer}`)
+      } else {
+        setTestState('failed')
+        setTestMessage(data.reason || 'Unknown error')
+      }
+    } catch {
+      setTestState('failed')
+      setTestMessage('Agent unreachable on port 9090.')
+    }
+    // Reset button after 4 seconds
+    setTimeout(() => setTestState('idle'), 4000)
   }
 
   useEffect(() => {
@@ -54,14 +77,52 @@ export function PrinterStatusPanel() {
           <Printer className="h-5 w-5 text-muted-foreground" />
           <h2 className="text-base font-semibold text-foreground">Printer Status</h2>
         </div>
-        <button
-          onClick={fetchStatus}
-          className="text-muted-foreground hover:text-foreground transition-colors"
-          title="Refresh now"
-        >
-          <RefreshCw className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Test Print Button */}
+          <button
+            onClick={sendTestPrint}
+            disabled={testState === 'loading' || !!error}
+            title="Send a test page to the printer"
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-all ${
+              testState === 'success'
+                ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/30'
+                : testState === 'failed'
+                ? 'bg-red-500/10 text-red-500 border border-red-500/30'
+                : 'bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            {testState === 'loading' && <Loader2 className="h-3 w-3 animate-spin" />}
+            {testState === 'success' && <CheckCircle2 className="h-3 w-3" />}
+            {testState === 'failed'  && <XCircle className="h-3 w-3" />}
+            {testState === 'idle'    && <FlaskConical className="h-3 w-3" />}
+            {testState === 'loading' ? 'Printing...' :
+             testState === 'success' ? 'Sent!' :
+             testState === 'failed'  ? 'Failed' : 'Test Print'}
+          </button>
+          {/* Refresh */}
+          <button
+            onClick={fetchStatus}
+            className="text-muted-foreground hover:text-foreground transition-colors"
+            title="Refresh now"
+          >
+            <RefreshCw className="h-4 w-4" />
+          </button>
+        </div>
       </div>
+
+      {/* Test print result message */}
+      {(testState === 'success' || testState === 'failed') && testMessage && (
+        <div className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs ${
+          testState === 'success'
+            ? 'bg-emerald-500/10 text-emerald-500'
+            : 'bg-red-500/10 text-red-500'
+        }`}>
+          {testState === 'success'
+            ? <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+            : <XCircle className="h-3.5 w-3.5 shrink-0" />}
+          <span>{testMessage}</span>
+        </div>
+      )}
 
       {/* Agent unreachable */}
       {error && (
