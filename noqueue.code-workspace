@@ -1,0 +1,22 @@
+{
+  "folders": [
+    {
+      "name": "NoQueue Frontend",
+      "path": "."
+    },
+    {
+      "name": "NoQueue Backend",
+      "path": "./noqueue-backend"
+    },
+    {
+      "name": "Print Agent",
+      "path": "./print-agent"
+    }
+  ],
+  "settings": {
+    "java.import.gradle.enabled": true,
+    "java.import.maven.enabled": false,
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.compile.nullAnalysis.mode": "disabled"
+  }
+}

@@ -70,7 +70,7 @@ goto fail
 :execute
 @rem Setup the command line
 
-set CLASSPATH=%APP_HOME%\lib\print-agent-1.0-SNAPSHOT.jar;%APP_HOME%\lib\gson-2.10.1.jar
+set CLASSPATH=%APP_HOME%\lib\print-agent-1.0-SNAPSHOT.jar;%APP_HOME%\lib\gson-2.10.1.jar;%APP_HOME%\lib\pdfbox-3.0.3.jar;%APP_HOME%\lib\fontbox-3.0.3.jar;%APP_HOME%\lib\pdfbox-io-3.0.3.jar;%APP_HOME%\lib\commons-logging-1.3.3.jar
 
 
 @rem Execute print-agent

@@ -8,6 +8,7 @@ import { StatsCards } from '@/components/dashboard/admin/StatsCards'
 import { LivePrintIndicator } from '@/components/dashboard/admin/LivePrintIndicator'
 import { QueueTable } from '@/components/dashboard/admin/QueueTable'
 import { ManageTemplates } from '@/components/dashboard/admin/ManageTemplates'
+import { PrinterStatusPanel } from '@/components/dashboard/admin/PrinterStatusPanel'
 import { Skeleton } from '@/components/ui/skeleton'
 
 export default function AdminDashboardPage() {
@@ -53,10 +54,12 @@ export default function AdminDashboardPage() {
         {/* Stats Cards */}
         <StatsCards refreshTrigger={refreshTrigger} />
 
-        {/* Live Printing and Queue */}
+        {/* Live Printing and Printer Status */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <LivePrintIndicator refreshTrigger={refreshTrigger} />
-          <div className="lg:col-span-2" />
+          <div className="lg:col-span-2">
+            <PrinterStatusPanel />
+          </div>
         </div>
 
         {/* Queue Table */}

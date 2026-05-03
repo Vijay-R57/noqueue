@@ -5,6 +5,7 @@ import com.noqueue.agent.model.Order;
 import com.noqueue.agent.util.LoggerUtil;
 
 import java.io.File;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class QueueWorker implements Runnable {
 
@@ -14,13 +15,17 @@ public class QueueWorker implements Runnable {
     private final ApiService apiService;
     private final FileService fileService;
     private final PrinterService printerService;
+    // Shared with StatusServer so the frontend knows live print state
+    private final AtomicBoolean isPrinting;
 
     private volatile boolean running = true;
 
-    public QueueWorker(ApiService apiService, FileService fileService, PrinterService printerService) {
+    public QueueWorker(ApiService apiService, FileService fileService,
+                       PrinterService printerService, AtomicBoolean isPrinting) {
         this.apiService = apiService;
         this.fileService = fileService;
         this.printerService = printerService;
+        this.isPrinting = isPrinting;
     }
 
     public void stop() {
@@ -65,13 +70,13 @@ public class QueueWorker implements Runnable {
                 + " | Color: " + job.getColorType());
         LoggerUtil.info("==============================================");
 
-        // ── PHASE 1: Download (up to 3 attempts, handled in FileService) ──
+        // ── PHASE 1: Download (3-attempt retry inside FileService) ─────────
         File pdfFile;
         LoggerUtil.info("[JOB] Phase 1: Downloading file...");
         try {
             pdfFile = fileService.downloadFile(job.getId(), job.getFileUrl());
         } catch (Exception e) {
-            LoggerUtil.error("[JOB] File download permanently failed after all retries. Marking FAILED.", e);
+            LoggerUtil.error("[JOB] File download permanently failed. Marking FAILED.", e);
             apiService.updateJobStatus(job.getId(), "FAILED");
             return;
         }
@@ -85,17 +90,20 @@ public class QueueWorker implements Runnable {
         for (int attempt = 1; attempt <= MAX_PRINT_RETRIES; attempt++) {
             LoggerUtil.info("[JOB] Print attempt " + attempt + " of " + MAX_PRINT_RETRIES + "...");
             try {
-                // Verify printer is still up before each attempt
                 if (!printerService.isPrinterAvailable()) {
                     throw new Exception("Printer not available. Is it online and set as default?");
                 }
 
+                isPrinting.set(true);   // signal StatusServer → isPrinting: true
                 printerService.printDocument(job, pdfFile);
+                isPrinting.set(false);  // done
+
                 printed = true;
                 LoggerUtil.info("[JOB] Print attempt " + attempt + " succeeded.");
                 break;
 
             } catch (Exception e) {
+                isPrinting.set(false);
                 lastPrintError = e;
                 LoggerUtil.error("[JOB] Print attempt " + attempt + " failed: " + e.getMessage(), e);
 
@@ -106,15 +114,16 @@ public class QueueWorker implements Runnable {
             }
         }
 
-        // ── PHASE 3: Update final status ───────────────────────────────────
+        // ── PHASE 3: Final status update ───────────────────────────────────
         if (printed) {
             LoggerUtil.info("[JOB] Printing completed. Updating status to COMPLETED.");
             apiService.updateJobStatus(job.getId(), "COMPLETED");
             LoggerUtil.info("[JOB] Order #" + job.getId() + " finished successfully!");
         } else {
-            LoggerUtil.error("[JOB] Printing failed after " + MAX_PRINT_RETRIES
-                    + " attempts. Marking Order #" + job.getId() + " as FAILED.");
-            LoggerUtil.error("[JOB] Last error: " + (lastPrintError != null ? lastPrintError.getMessage() : "unknown"));
+            LoggerUtil.error("[JOB] All retries exhausted. Marking Order #" + job.getId() + " as FAILED.");
+            if (lastPrintError != null) {
+                LoggerUtil.error("[JOB] Last error: " + lastPrintError.getMessage());
+            }
             apiService.updateJobStatus(job.getId(), "FAILED");
         }
     }
