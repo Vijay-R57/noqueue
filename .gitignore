@@ -1,27 +1,27 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# ── Next.js ────────────────────────────────────────────────
+.next/
+node_modules/
+out/
 
-# dependencies
-/node_modules
+# ── Java build artifacts ────────────────────────────────────
+noqueue-backend/build/
+noqueue-backend/.gradle/
+print-agent/build/
+print-agent/.gradle/
+print-agent/temp/
 
-# next.js
-/.next/
-/out/
+# ── Secrets — never commit these ───────────────────────────
+noqueue-backend/src/main/resources/application.properties
+.env
+.env.local
+.env*.local
 
-# production
-/build
+# ── OS / IDE junk ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+*.iml
+.vscode/settings.json
 
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
+# ── Logs ───────────────────────────────────────────────────
+*.log
