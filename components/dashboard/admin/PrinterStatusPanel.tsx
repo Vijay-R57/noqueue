@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Printer, Wifi, WifiOff, Loader2, AlertTriangle, RefreshCw, CheckCircle2, XCircle, FlaskConical } from 'lucide-react'
+import { Printer, Wifi, WifiOff, Loader2, AlertTriangle, RefreshCw, CheckCircle2, XCircle, FlaskConical, ChevronDown } from 'lucide-react'
 
 interface PrinterStatus {
   name: string
@@ -11,6 +11,7 @@ interface PrinterStatus {
 }
 
 const AGENT_STATUS_URL = 'http://localhost:9090/printer/status'
+const AGENT_LIST_URL   = 'http://localhost:9090/printer/list'
 const REFRESH_INTERVAL_MS = 5000
 
 export function PrinterStatusPanel() {
@@ -19,6 +20,8 @@ export function PrinterStatusPanel() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [testState, setTestState] = useState<'idle' | 'loading' | 'success' | 'failed'>('idle')
   const [testMessage, setTestMessage] = useState<string>('')
+  const [printerList, setPrinterList] = useState<string[]>([])
+  const [listLoading, setListLoading] = useState(false)
 
   const fetchStatus = async () => {
     try {
@@ -56,8 +59,23 @@ export function PrinterStatusPanel() {
     setTimeout(() => setTestState('idle'), 4000)
   }
 
+  const fetchPrinters = async () => {
+    setListLoading(true)
+    try {
+      const res = await fetch(AGENT_LIST_URL, { cache: 'no-store' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const data: string[] = await res.json()
+      setPrinterList(data)
+    } catch {
+      setPrinterList([])
+    } finally {
+      setListLoading(false)
+    }
+  }
+
   useEffect(() => {
     fetchStatus()
+    fetchPrinters()
     const interval = setInterval(fetchStatus, REFRESH_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [])
@@ -202,6 +220,43 @@ export function PrinterStatusPanel() {
           <AlertTriangle className="h-4 w-4 text-red-500 shrink-0" />
           <p className="text-sm text-red-500 font-medium">
             Printer is offline — jobs will fail until the printer is connected and ready.
+          </p>
+        </div>
+      )}
+
+      {/* Printer Dropdown */}
+      {!error && (
+        <div className="space-y-1.5">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground font-medium uppercase tracking-wide">Available Printers</p>
+            <button
+              onClick={fetchPrinters}
+              disabled={listLoading}
+              className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
+            >
+              {listLoading
+                ? <Loader2 className="h-3 w-3 animate-spin" />
+                : <RefreshCw className="h-3 w-3" />}
+              Refresh
+            </button>
+          </div>
+          <div className="relative">
+            <select
+              className="w-full appearance-none rounded-md border border-border bg-muted/50 px-3 py-2 pr-8 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+              defaultValue=""
+            >
+              <option value="" disabled>
+                {listLoading ? 'Loading...' : printerList.length === 0 ? 'No printers found' : 'Select a printer...'}
+              </option>
+              {printerList.map((name) => (
+                <option key={name} value={name}>{name}</option>
+              ))}
+            </select>
+            <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Set <code className="font-mono bg-muted px-1 rounded">PRINTER_NAME</code> in{' '}
+            <code className="font-mono bg-muted px-1 rounded">Config.java</code> to target a specific printer.
           </p>
         </div>
       )}

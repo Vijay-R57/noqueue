@@ -12,6 +12,7 @@ import org.apache.pdfbox.pdmodel.font.PDType1Font;
 import org.apache.pdfbox.pdmodel.font.Standard14Fonts;
 
 import javax.print.PrintService;
+import javax.print.PrintServiceLookup;
 import java.awt.print.PrinterJob;
 import java.io.File;
 import java.io.IOException;
@@ -45,10 +46,12 @@ public class StatusServer {
         server = HttpServer.create(new InetSocketAddress(PORT), 0);
         server.createContext("/printer/status", this::handleStatus);
         server.createContext("/printer/test",   this::handleTestPrint);
+        server.createContext("/printer/list",   this::handlePrinterList);
         server.setExecutor(null);
         server.start();
         LoggerUtil.info("[STATUS-SERVER] Listening on http://localhost:" + PORT);
         LoggerUtil.info("[STATUS-SERVER]   GET  /printer/status");
+        LoggerUtil.info("[STATUS-SERVER]   GET  /printer/list");
         LoggerUtil.info("[STATUS-SERVER]   POST /printer/test");
     }
 
@@ -137,6 +140,28 @@ public class StatusServer {
             sendJson(exchange, 500,
                 "{\"status\":\"failed\",\"reason\":\"" + escape(e.getMessage()) + "\"}");
         }
+    }
+
+    // ── GET /printer/list ──────────────────────────────────────────────────
+    private void handlePrinterList(HttpExchange exchange) throws IOException {
+        addCorsHeaders(exchange);
+
+        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(204, -1);
+            return;
+        }
+
+        PrintService[] services = PrintServiceLookup.lookupPrintServices(null, null);
+        LoggerUtil.info("[PRINTER-LIST] Returning " + services.length + " printer(s).");
+
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < services.length; i++) {
+            sb.append("\"").append(escape(services[i].getName())).append("\"");
+            if (i < services.length - 1) sb.append(",");
+        }
+        sb.append("]");
+
+        sendJson(exchange, 200, sb.toString());
     }
 
     // ── Generate a simple test PDF using PDFBox ────────────────────────────
