@@ -36,9 +36,10 @@ public class OrderEventService {
     private final List<SseEmitter> emitters = new CopyOnWriteArrayList<>();
     private final ObjectMapper     mapper;
 
-    /** Inject Spring's shared, fully-configured ObjectMapper (JavaTimeModule included). */
-    public OrderEventService(ObjectMapper mapper) {
-        this.mapper = mapper;
+    /** Manually instantiate ObjectMapper to avoid injection issues */
+    public OrderEventService() {
+        this.mapper = new ObjectMapper();
+        this.mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
     }
 
     // ── Subscribe ──────────────────────────────────────────────────────────

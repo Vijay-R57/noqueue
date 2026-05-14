@@ -1,6 +1,6 @@
 package com.noqueue.controller;
 
-import com.noqueue.dto.OrderRequest;
+
 import com.noqueue.model.Order;
 import com.noqueue.model.OrderStatus;
 import com.noqueue.service.OrderService;

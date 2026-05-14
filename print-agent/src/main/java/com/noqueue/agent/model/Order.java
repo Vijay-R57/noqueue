@@ -1,6 +1,6 @@
 package com.noqueue.agent.model;
 
-import com.google.gson.annotations.SerializedName;
+
 
 public class Order {
     private Long id;
