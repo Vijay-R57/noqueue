@@ -16,11 +16,16 @@ import javax.print.PrintServiceLookup;
 import java.awt.print.PrinterJob;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.apache.pdfbox.printing.PDFPrintable;
@@ -33,26 +38,56 @@ public class StatusServer {
     private static final DateTimeFormatter TIMESTAMP_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault());
 
+    /** Virtual/software printer keywords — filtered out of /printer/list */
+    private static final Set<String> VIRTUAL_KEYWORDS = Set.of(
+        "microsoft print to pdf",
+        "microsoft xps document writer",
+        "fax",
+        "onenote",
+        "send to onenote",
+        "xps document writer",
+        "adobe pdf",
+        "cutepdf",
+        "pdf creator",
+        "bullzip",
+        "foxit"
+    );
+
     private final PrinterService printerService;
     private final AtomicBoolean isPrinting;
+    private final AtomicBoolean isPaused;
     private HttpServer server;
 
-    public StatusServer(PrinterService printerService, AtomicBoolean isPrinting) {
+    public StatusServer(PrinterService printerService, AtomicBoolean isPrinting, AtomicBoolean isPaused) {
         this.printerService = printerService;
         this.isPrinting = isPrinting;
+        this.isPaused = isPaused;
+    }
+
+    /** Returns the shared pause flag so QueueWorker can observe it. */
+    public AtomicBoolean getPausedFlag() {
+        return isPaused;
     }
 
     public void start() throws IOException {
         server = HttpServer.create(new InetSocketAddress(PORT), 0);
-        server.createContext("/printer/status", this::handleStatus);
-        server.createContext("/printer/test",   this::handleTestPrint);
-        server.createContext("/printer/list",   this::handlePrinterList);
+        server.createContext("/printer/status",     this::handleStatus);
+        server.createContext("/printer/test",       this::handleTestPrint);
+        server.createContext("/printer/list",       this::handlePrinterList);
+        server.createContext("/printer/connect",    this::handleConnect);
+        server.createContext("/printer/disconnect", this::handleDisconnect);
+        server.createContext("/printer/pause",      this::handlePause);
+        server.createContext("/printer/resume",     this::handleResume);
         server.setExecutor(null);
         server.start();
         LoggerUtil.info("[STATUS-SERVER] Listening on http://localhost:" + PORT);
         LoggerUtil.info("[STATUS-SERVER]   GET  /printer/status");
         LoggerUtil.info("[STATUS-SERVER]   GET  /printer/list");
         LoggerUtil.info("[STATUS-SERVER]   POST /printer/test");
+        LoggerUtil.info("[STATUS-SERVER]   POST /printer/connect");
+        LoggerUtil.info("[STATUS-SERVER]   POST /printer/disconnect");
+        LoggerUtil.info("[STATUS-SERVER]   POST /printer/pause");
+        LoggerUtil.info("[STATUS-SERVER]   POST /printer/resume");
     }
 
     public void stop() {
@@ -71,19 +106,65 @@ public class StatusServer {
             return;
         }
 
-        boolean online = printerService.isPrinterAvailable();
-        String name    = printerService.getDefaultPrinterName();
-        boolean printing = isPrinting.get();
+        boolean online       = printerService.isPrinterAvailable();
+        String  name         = printerService.getDefaultPrinterName();
+        boolean printing     = isPrinting.get();
+        boolean paused       = isPaused.get();
+        // activePrinter: the runtime-selected printer (null = using config/default)
+        String activePrinter = printerService.getActivePrinterName();
 
         String json = String.format(
-            "{\"name\":\"%s\",\"status\":\"%s\",\"isPrinting\":%b,\"lastChecked\":\"%s\"}",
+            "{\"name\":\"%s\",\"status\":\"%s\",\"isPrinting\":%b,\"isPaused\":%b,\"lastChecked\":\"%s\",\"activePrinter\":%s}",
             escape(name),
             online ? "ONLINE" : "OFFLINE",
             printing,
-            Instant.now().toString()
+            paused,
+            Instant.now().toString(),
+            activePrinter != null ? "\"" + escape(activePrinter) + "\"" : "null"
         );
 
         sendJson(exchange, 200, json);
+    }
+
+    // ── POST /printer/connect ──────────────────────────────────────────────
+    private void handleConnect(HttpExchange exchange) throws IOException {
+        addCorsHeaders(exchange);
+
+        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(204, -1);
+            return;
+        }
+
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendJson(exchange, 405, "{\"error\":\"Method not allowed. Use POST.\"}");
+            return;
+        }
+
+        // Read request body
+        String body;
+        try (InputStream is = exchange.getRequestBody()) {
+            body = new String(is.readAllBytes(), StandardCharsets.UTF_8).trim();
+        }
+
+        // Parse printerName from JSON: {"printerName":"<name>"}
+        String printerName = extractJsonString(body, "printerName");
+        if (printerName == null || printerName.isBlank()) {
+            sendJson(exchange, 400, "{\"status\":\"failed\",\"message\":\"Missing printerName in request body\"}");
+            return;
+        }
+
+        LoggerUtil.info("[CONNECT] Request to connect printer: \"" + printerName + "\"");
+        String matched = printerService.setActivePrinter(printerName);
+
+        if (matched != null) {
+            LoggerUtil.info("[CONNECT] Successfully connected to: \"" + matched + "\"");
+            sendJson(exchange, 200,
+                "{\"status\":\"connected\",\"printer\":\"" + escape(matched) + "\"}");
+        } else {
+            LoggerUtil.error("[CONNECT] Printer not found: \"" + printerName + "\"");
+            sendJson(exchange, 404,
+                "{\"status\":\"failed\",\"message\":\"Printer not found: " + escape(printerName) + "\"}");
+        }
     }
 
     // ── POST /printer/test ─────────────────────────────────────────────────
@@ -151,17 +232,80 @@ public class StatusServer {
             return;
         }
 
-        PrintService[] services = PrintServiceLookup.lookupPrintServices(null, null);
-        LoggerUtil.info("[PRINTER-LIST] Returning " + services.length + " printer(s).");
+        PrintService[] all = PrintServiceLookup.lookupPrintServices(null, null);
+        List<String> physical = new ArrayList<>();
+        for (PrintService svc : all) {
+            if (!isVirtualPrinter(svc.getName())) {
+                physical.add(svc.getName());
+            }
+        }
+        LoggerUtil.info("[PRINTER-LIST] " + physical.size() + " physical printer(s) (" + all.length + " total, virtual filtered out).");
 
         StringBuilder sb = new StringBuilder("[");
-        for (int i = 0; i < services.length; i++) {
-            sb.append("\"").append(escape(services[i].getName())).append("\"");
-            if (i < services.length - 1) sb.append(",");
+        for (int i = 0; i < physical.size(); i++) {
+            sb.append("\"").append(escape(physical.get(i))).append("\"");
+            if (i < physical.size() - 1) sb.append(",");
         }
         sb.append("]");
 
         sendJson(exchange, 200, sb.toString());
+    }
+
+    // ── POST /printer/disconnect ───────────────────────────────────────────
+    private void handleDisconnect(HttpExchange exchange) throws IOException {
+        addCorsHeaders(exchange);
+
+        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(204, -1);
+            return;
+        }
+
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendJson(exchange, 405, "{\"error\":\"Method not allowed. Use POST.\"}");
+            return;
+        }
+
+        printerService.clearActivePrinter();
+        LoggerUtil.info("[DISCONNECT] Active printer cleared — falling back to OS default.");
+        sendJson(exchange, 200, "{\"status\":\"disconnected\"}");
+    }
+
+    // ── POST /printer/pause ────────────────────────────────────────────────
+    private void handlePause(HttpExchange exchange) throws IOException {
+        addCorsHeaders(exchange);
+
+        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(204, -1);
+            return;
+        }
+
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendJson(exchange, 405, "{\"error\":\"Method not allowed. Use POST.\"}");
+            return;
+        }
+
+        isPaused.set(true);
+        LoggerUtil.info("[QUEUE] Queue PAUSED by admin.");
+        sendJson(exchange, 200, "{\"status\":\"paused\"}");
+    }
+
+    // ── POST /printer/resume ───────────────────────────────────────────────
+    private void handleResume(HttpExchange exchange) throws IOException {
+        addCorsHeaders(exchange);
+
+        if ("OPTIONS".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.sendResponseHeaders(204, -1);
+            return;
+        }
+
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            sendJson(exchange, 405, "{\"error\":\"Method not allowed. Use POST.\"}");
+            return;
+        }
+
+        isPaused.set(false);
+        LoggerUtil.info("[QUEUE] Queue RESUMED by admin.");
+        sendJson(exchange, 200, "{\"status\":\"resumed\"}");
     }
 
     // ── Generate a simple test PDF using PDFBox ────────────────────────────
@@ -215,6 +359,13 @@ public class StatusServer {
     }
 
     // ── Helpers ────────────────────────────────────────────────────────────
+    /** Returns true if the printer name matches any known virtual/software printer. */
+    private boolean isVirtualPrinter(String name) {
+        if (name == null) return true;
+        String lower = name.toLowerCase();
+        return VIRTUAL_KEYWORDS.stream().anyMatch(lower::contains);
+    }
+
     private void addCorsHeaders(HttpExchange exchange) {
         exchange.getResponseHeaders().add("Access-Control-Allow-Origin",  "*");
         exchange.getResponseHeaders().add("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -223,7 +374,7 @@ public class StatusServer {
     }
 
     private void sendJson(HttpExchange exchange, int code, String json) throws IOException {
-        byte[] bytes = json.getBytes();
+        byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
         exchange.sendResponseHeaders(code, bytes.length);
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);
@@ -233,5 +384,22 @@ public class StatusServer {
     private String escape(String s) {
         if (s == null) return "";
         return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n");
+    }
+
+    /**
+     * Minimal JSON string extractor — pulls the value of a given key from a flat JSON object.
+     * Avoids adding a JSON library dependency just for this small use-case.
+     */
+    private String extractJsonString(String json, String key) {
+        String search = "\"" + key + "\"";
+        int keyIdx = json.indexOf(search);
+        if (keyIdx < 0) return null;
+        int colonIdx = json.indexOf(':', keyIdx + search.length());
+        if (colonIdx < 0) return null;
+        int quoteStart = json.indexOf('"', colonIdx + 1);
+        if (quoteStart < 0) return null;
+        int quoteEnd = json.indexOf('"', quoteStart + 1);
+        if (quoteEnd < 0) return null;
+        return json.substring(quoteStart + 1, quoteEnd);
     }
 }

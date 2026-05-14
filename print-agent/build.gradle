@@ -20,6 +20,14 @@ application {
     applicationDefaultJvmArgs = ['-Dfile.encoding=UTF-8']
 }
 
+// Allow: .\gradlew run --args="--status-only"  or  --args="--test"
+run {
+    if (project.hasProperty('args')) {
+        args project.property('args').toString().split(' ')
+    }
+    standardInput = System.in
+}
+
 compileJava.options.encoding = 'UTF-8'
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'

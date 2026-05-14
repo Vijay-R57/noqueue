@@ -16,13 +16,16 @@ public class OrderController {
 
     private final OrderService orderService;
 
-    @PostMapping
+    @PostMapping(consumes = {"multipart/form-data"})
     public ResponseEntity<Order> createOrder(
-            @RequestBody OrderRequest request,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+            @RequestParam("printType") String printType,
+            @RequestParam("colorType") String colorType,
+            @RequestParam("binding") String binding,
             Authentication authentication
     ) {
         String email = authentication.getName();
-        return ResponseEntity.ok(orderService.createOrder(request, email));
+        return ResponseEntity.ok(orderService.createOrder(file, printType, colorType, binding, email));
     }
 
     @GetMapping("/next")

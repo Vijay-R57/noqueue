@@ -1,7 +1,5 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { getOrders } from '@/services/api'
 import { Order } from '@/lib/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -14,11 +12,11 @@ import {
 } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Empty } from '@/components/ui/empty'
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from '@/components/ui/empty'
 
 interface ActiveOrdersListProps {
-  userEmail: string
-  refreshTrigger?: number
+  orders: Order[]
+  isLoading: boolean
 }
 
 const statusBadgeVariant = (status: string) => {
@@ -55,27 +53,7 @@ const statusColor = (status: string) => {
   }
 }
 
-export function ActiveOrdersList({ userEmail, refreshTrigger }: ActiveOrdersListProps) {
-  const [orders, setOrders] = useState<Order[]>([])
-  const [isLoading, setIsLoading] = useState(true)
-
-  useEffect(() => {
-    const loadOrders = async () => {
-      setIsLoading(true)
-      try {
-        const allOrders = await getOrders(userEmail)
-        const active = allOrders.filter((o) => o.status !== 'COMPLETED')
-        setOrders(active.sort((a, b) => b.tokenNumber - a.tokenNumber))
-      } catch (error) {
-        console.error('Failed to load orders:', error)
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadOrders()
-  }, [userEmail, refreshTrigger])
-
+export function ActiveOrdersList({ orders, isLoading }: ActiveOrdersListProps) {
   if (isLoading) {
     return (
       <Card>
@@ -102,7 +80,12 @@ export function ActiveOrdersList({ userEmail, refreshTrigger }: ActiveOrdersList
           <CardDescription>Your current print jobs</CardDescription>
         </CardHeader>
         <CardContent>
-          <Empty description="No active orders. Place your first order to get started!" />
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No active orders</EmptyTitle>
+              <EmptyDescription>Place your first order to get started!</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         </CardContent>
       </Card>
     )
@@ -128,12 +111,12 @@ export function ActiveOrdersList({ userEmail, refreshTrigger }: ActiveOrdersList
             </TableHeader>
             <TableBody>
               {orders.map((order) => (
-                <TableRow key={order.id}>
+                <TableRow key={order.id} className="transition-all duration-300">
                   <TableCell className="font-bold">#{order.tokenNumber}</TableCell>
                   <TableCell className="text-sm">{order.fileName}</TableCell>
                   <TableCell className="text-sm">{order.pages}</TableCell>
                   <TableCell>
-                    <Badge variant={statusBadgeVariant(order.status)} className={statusColor(order.status)}>
+                    <Badge variant={statusBadgeVariant(order.status)} className={`transition-colors duration-300 ${statusColor(order.status)} ${order.status === 'PRINTING' ? 'animate-pulse' : ''}`}>
                       {order.status.replace(/_/g, ' ')}
                     </Badge>
                   </TableCell>

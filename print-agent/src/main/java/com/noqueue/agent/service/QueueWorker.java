@@ -17,15 +17,19 @@ public class QueueWorker implements Runnable {
     private final PrinterService printerService;
     // Shared with StatusServer so the frontend knows live print state
     private final AtomicBoolean isPrinting;
+    // Shared with StatusServer — set by POST /printer/pause and /printer/resume
+    private final AtomicBoolean isPaused;
 
     private volatile boolean running = true;
 
     public QueueWorker(ApiService apiService, FileService fileService,
-                       PrinterService printerService, AtomicBoolean isPrinting) {
-        this.apiService = apiService;
-        this.fileService = fileService;
+                       PrinterService printerService, AtomicBoolean isPrinting,
+                       AtomicBoolean isPaused) {
+        this.apiService     = apiService;
+        this.fileService    = fileService;
         this.printerService = printerService;
-        this.isPrinting = isPrinting;
+        this.isPrinting     = isPrinting;
+        this.isPaused       = isPaused;
     }
 
     public void stop() {
@@ -38,6 +42,13 @@ public class QueueWorker implements Runnable {
 
         while (running) {
             try {
+                // ── Queue Pause support ──────────────────────────────────
+                if (isPaused.get()) {
+                    LoggerUtil.info("[WORKER] Queue is paused by admin. Waiting " + (Config.POLLING_INTERVAL_MS / 1000) + "s...");
+                    Thread.sleep(Config.POLLING_INTERVAL_MS);
+                    continue;
+                }
+
                 Order job = apiService.fetchNextJob();
 
                 if (job == null) {

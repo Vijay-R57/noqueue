@@ -1,5 +1,5 @@
 // Order Status
-export type OrderStatus = 'WAITING' | 'PAID' | 'READY_TO_PRINT' | 'PRINTING' | 'COMPLETED'
+export type OrderStatus = 'WAITING' | 'PAID' | 'READY_TO_PRINT' | 'PRINTING' | 'COMPLETED' | 'FAILED'
 
 // Color Type
 export type ColorType = 'B&W' | 'Color'

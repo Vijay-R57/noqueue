@@ -123,3 +123,17 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ── Custom keyframes for live dashboard animations ─────────────────────── */
+@keyframes progress {
+  0%   { width: 5%;   opacity: 0.6; }
+  50%  { width: 80%;  opacity: 1;   }
+  100% { width: 5%;   opacity: 0.6; }
+}
+
+@keyframes row-flash {
+  0%   { background-color: transparent; }
+  30%  { background-color: color-mix(in oklch, var(--color-primary) 8%, transparent); }
+  100% { background-color: transparent; }
+}
+

@@ -17,6 +17,61 @@ import java.io.File;
 
 public class PrinterService {
 
+    /**
+     * Runtime-selected printer name (set via POST /printer/connect).
+     * Takes priority over Config.PRINTER_NAME.
+     * volatile for safe cross-thread reads (StatusServer thread -> QueueWorker thread).
+     */
+    private volatile String activePrinterName = null;
+
+    /** Returns the currently active printer name override, or null if none set. */
+    public String getActivePrinterName() {
+        return activePrinterName;
+    }
+
+    /**
+     * Attempts to find a printer matching the given name (case-insensitive, exact match first,
+     * then contains). Returns the matched PrintService name on success, null if not found.
+     */
+    public String setActivePrinter(String printerName) {
+        if (printerName == null || printerName.isBlank()) return null;
+
+        PrintService[] allServices = PrintServiceLookup.lookupPrintServices(null, null);
+
+        // Exact match (case-insensitive) first
+        for (PrintService svc : allServices) {
+            if (svc.getName().equalsIgnoreCase(printerName)) {
+                activePrinterName = svc.getName();
+                LoggerUtil.info("[PRINTER] Active printer set (exact match): \"" + activePrinterName + "\"");
+                return activePrinterName;
+            }
+        }
+
+        // Partial contains match
+        for (PrintService svc : allServices) {
+            if (svc.getName().toLowerCase().contains(printerName.toLowerCase())) {
+                activePrinterName = svc.getName();
+                LoggerUtil.info("[PRINTER] Active printer set (partial match): \"" + activePrinterName + "\"");
+                return activePrinterName;
+            }
+        }
+
+        LoggerUtil.error("[PRINTER] No printer matching: \"" + printerName + "\"");
+        return null;
+    }
+
+    /**
+     * Clears the runtime-selected printer, reverting to Config.PRINTER_NAME / OS default.
+     * Called by POST /printer/disconnect.
+     */
+    public void clearActivePrinter() {
+        String previous = activePrinterName;
+        activePrinterName = null;
+        if (previous != null) {
+            LoggerUtil.info("[PRINTER] Active printer cleared (was: \"" + previous + "\"). Reverting to OS default.");
+        }
+    }
+
     // ── List all printers on the system ───────────────────────────────────
     public void listAllPrinters() {
         LoggerUtil.info("[PRINTER] Available printers on this system:");
@@ -36,8 +91,21 @@ public class PrinterService {
      * Logs all available printers if the target is not found.
      */
     public PrintService resolvePrinter() {
+        PrintService[] allServices = PrintServiceLookup.lookupPrintServices(null, null);
+
+        // Priority 1: runtime-selected printer (via POST /printer/connect)
+        if (activePrinterName != null && !activePrinterName.isBlank()) {
+            for (PrintService svc : allServices) {
+                if (svc.getName().equalsIgnoreCase(activePrinterName)) {
+                    return svc;
+                }
+            }
+            // Name stored but printer disappeared (e.g. USB disconnected)
+            LoggerUtil.error("[PRINTER] Previously selected printer not found: \"" + activePrinterName + "\"");
+        }
+
+        // Priority 2: Config.PRINTER_NAME (env var / static config)
         if (!Config.PRINTER_NAME.isEmpty()) {
-            PrintService[] allServices = PrintServiceLookup.lookupPrintServices(null, null);
             for (PrintService svc : allServices) {
                 if (svc.getName().toLowerCase().contains(Config.PRINTER_NAME.toLowerCase())) {
                     return svc;
@@ -48,10 +116,10 @@ public class PrinterService {
             return null;
         }
 
-        // Fallback to OS default
+        // Priority 3: OS default printer
         PrintService defaultService = PrintServiceLookup.lookupDefaultPrintService();
         if (defaultService != null) {
-            LoggerUtil.info("[PRINTER] PRINTER_NAME not configured. Using default: " + defaultService.getName());
+            LoggerUtil.info("[PRINTER] No printer configured. Using OS default: " + defaultService.getName());
         }
         return defaultService;
     }

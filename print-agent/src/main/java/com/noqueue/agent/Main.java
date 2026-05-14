@@ -27,6 +27,56 @@ public class Main {
 
         // Shared state between QueueWorker and StatusServer
         AtomicBoolean isPrinting = new AtomicBoolean(false);
+        AtomicBoolean isPaused   = new AtomicBoolean(false);
+
+        // ── CHECK ARGS FIRST (before any network calls) ──────────────────
+        boolean testMode       = args.length > 0 && args[0].equals("--test");
+        boolean statusOnlyMode = args.length > 0 && args[0].equals("--status-only");
+
+        // ── TEST MODE: skip auth, just probe printer + status server ─────
+        if (testMode) {
+            LoggerUtil.info("");
+            LoggerUtil.info("====== RUNNING IN TEST MODE (no backend required) ======");
+            LoggerUtil.info("[INIT] Detecting printers...");
+            printerService.listAllPrinters();
+
+            LoggerUtil.info("[INIT] Starting Printer Status API on :9090...");
+            StatusServer statusServer = new StatusServer(printerService, isPrinting, isPaused);
+            statusServer.start();
+
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                statusServer.stop();
+                LoggerUtil.info("[SHUTDOWN] Agent stopped.");
+            }));
+
+            runTestMode(fileService, printerService, isPrinting);
+            // Keep status server alive — Ctrl+C to exit
+            LoggerUtil.info("[TEST] Status server running on :9090. Press Ctrl+C to stop.");
+            Thread.currentThread().join();
+            return;
+        }
+
+        // ── STATUS-ONLY MODE: just run the HTTP server, no auth/queue ────
+        if (statusOnlyMode) {
+            LoggerUtil.info("");
+            LoggerUtil.info("====== STATUS-ONLY MODE (no backend required) ======");
+            LoggerUtil.info("[INIT] Detecting printers...");
+            printerService.listAllPrinters();
+
+            LoggerUtil.info("[INIT] Starting Printer Status API on :9090...");
+            StatusServer statusServer = new StatusServer(printerService, isPrinting, isPaused);
+            statusServer.start();
+
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                statusServer.stop();
+                LoggerUtil.info("[SHUTDOWN] Agent stopped.");
+            }));
+
+            LoggerUtil.info("[STATUS] Server running on :9090 — use the UI to select & connect a printer.");
+            LoggerUtil.info("[STATUS] Press Ctrl+C to stop.");
+            Thread.currentThread().join();
+            return;
+        }
 
         // ── STEP 1: Authenticate ─────────────────────────────────────────
         LoggerUtil.info("[INIT] STEP 1: Authenticating with backend...");
@@ -52,22 +102,13 @@ public class Main {
 
         // ── STEP 3: Start Printer Status HTTP Server on :9090 ────────────
         LoggerUtil.info("[INIT] STEP 3: Starting Printer Status API...");
-        StatusServer statusServer = new StatusServer(printerService, isPrinting);
+        StatusServer statusServer = new StatusServer(printerService, isPrinting, isPaused);
         statusServer.start();
-
-        // ── TEST MODE ────────────────────────────────────────────────────
-        if (args.length > 0 && args[0].equals("--test")) {
-            LoggerUtil.info("");
-            LoggerUtil.info("====== RUNNING IN TEST MODE (bypasses backend) ======");
-            runTestMode(fileService, printerService, isPrinting);
-            statusServer.stop();
-            return;
-        }
 
         // ── STEP 4: Start Queue Worker ───────────────────────────────────
         LoggerUtil.info("[INIT] STEP 4: Starting Queue Worker...");
         LoggerUtil.info("");
-        QueueWorker worker = new QueueWorker(apiService, fileService, printerService, isPrinting);
+        QueueWorker worker = new QueueWorker(apiService, fileService, printerService, isPrinting, isPaused);
         Thread workerThread = new Thread(worker);
         workerThread.setName("queue-worker");
 

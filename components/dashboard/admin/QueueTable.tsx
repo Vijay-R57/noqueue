@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { getOrders, updateOrderStatus } from '@/services/api'
+import { useState } from 'react'
+import { updateOrderStatus } from '@/services/api'
 import { Order, OrderStatus } from '@/lib/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -12,77 +12,60 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { Button }   from '@/components/ui/button'
+import { Badge }    from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Empty } from '@/components/ui/empty'
-import { toast } from 'sonner'
-import { Loader2 } from 'lucide-react'
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription }    from '@/components/ui/empty'
+import { toast }    from 'sonner'
+import { Loader2, Radio } from 'lucide-react'
 
 interface QueueTableProps {
-  refreshTrigger?: number
-  onOrderUpdated?: () => void
+  orders:          Order[]
+  isLoading:       boolean
+  flashedOrderId:  string | null   // row to highlight on status transition
+  onOrderUpdated:  () => void
 }
 
-const statusColor = (status: string) => {
+// ── Status colour mapping ─────────────────────────────────────────────────────
+const STATUS_COLOUR: Record<string, string> = {
+  WAITING:        'text-amber-600 dark:text-amber-400',
+  PAID:           'text-blue-600 dark:text-blue-400',
+  READY_TO_PRINT: 'text-indigo-600 dark:text-indigo-400',
+  PRINTING:       'text-emerald-600 dark:text-emerald-400',
+  COMPLETED:      'text-emerald-600 dark:text-emerald-400',
+  FAILED:         'text-red-600 dark:text-red-400',
+}
+
+// ── Flash highlight colours for animated row transitions ──────────────────────
+const FLASH_COLOUR: Record<string, string> = {
+  PRINTING:  'bg-emerald-500/10 border-l-2 border-emerald-500',
+  COMPLETED: 'bg-blue-500/10 border-l-2 border-blue-400',
+  FAILED:    'bg-red-500/10 border-l-2 border-red-400',
+}
+
+function getNextAction(status: OrderStatus): { label: string; nextStatus: OrderStatus } | null {
   switch (status) {
     case 'WAITING':
-      return 'text-amber-600 dark:text-amber-400'
     case 'PAID':
-      return 'text-blue-600 dark:text-blue-400'
+      return { label: 'Mark Ready', nextStatus: 'READY_TO_PRINT' }
     case 'READY_TO_PRINT':
-      return 'text-blue-600 dark:text-blue-400'
+      return { label: 'Start Printing', nextStatus: 'PRINTING' }
     case 'PRINTING':
-      return 'text-emerald-600 dark:text-emerald-400'
-    case 'COMPLETED':
-      return 'text-emerald-600 dark:text-emerald-400'
+      return { label: 'Mark Completed', nextStatus: 'COMPLETED' }
     default:
-      return 'text-gray-600 dark:text-gray-400'
+      return null
   }
 }
 
-export function QueueTable({ refreshTrigger, onOrderUpdated }: QueueTableProps) {
-  const [orders, setOrders] = useState<Order[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+export function QueueTable({ orders, isLoading, flashedOrderId, onOrderUpdated }: QueueTableProps) {
   const [updatingId, setUpdatingId] = useState<string | null>(null)
-
-  useEffect(() => {
-    const loadOrders = async () => {
-      setIsLoading(true)
-      try {
-        const allOrders = await getOrders()
-        // Filter and sort by FIFO (token number ascending), but show non-completed first
-        const active = allOrders.filter(
-          (o) => o.status !== 'COMPLETED'
-        )
-        active.sort((a, b) => a.tokenNumber - b.tokenNumber)
-        setOrders(active)
-      } catch (error) {
-        console.error('Failed to load orders:', error)
-        toast.error('Failed to load queue')
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    loadOrders()
-
-    // Poll every 3 seconds for live updates
-    const interval = setInterval(loadOrders, 3000)
-    return () => clearInterval(interval)
-  }, [refreshTrigger])
 
   const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus) => {
     setUpdatingId(orderId)
     try {
       await updateOrderStatus(orderId, newStatus)
-      setOrders((prev) =>
-        prev.map((o) =>
-          o.id === orderId ? { ...o, status: newStatus } : o
-        )
-      )
-      toast.success(`Order updated to ${newStatus.replace(/_/g, ' ')}`)
-      onOrderUpdated?.()
+      // SSE event from the backend will drive the UI update — no local setState needed
+      onOrderUpdated()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update order'
       toast.error(message)
@@ -91,22 +74,7 @@ export function QueueTable({ refreshTrigger, onOrderUpdated }: QueueTableProps) 
     }
   }
 
-  const getNextAction = (
-    status: OrderStatus
-  ): { label: string; nextStatus: OrderStatus } | null => {
-    switch (status) {
-      case 'WAITING':
-      case 'PAID':
-        return { label: 'Mark as Ready', nextStatus: 'READY_TO_PRINT' }
-      case 'READY_TO_PRINT':
-        return { label: 'Start Printing', nextStatus: 'PRINTING' }
-      case 'PRINTING':
-        return { label: 'Mark Completed', nextStatus: 'COMPLETED' }
-      default:
-        return null
-    }
-  }
-
+  // ── Loading skeleton ──────────────────────────────────────────────────────
   if (isLoading) {
     return (
       <Card>
@@ -125,6 +93,7 @@ export function QueueTable({ refreshTrigger, onOrderUpdated }: QueueTableProps) 
     )
   }
 
+  // ── Empty state ───────────────────────────────────────────────────────────
   if (orders.length === 0) {
     return (
       <Card>
@@ -133,18 +102,37 @@ export function QueueTable({ refreshTrigger, onOrderUpdated }: QueueTableProps) 
           <CardDescription>FIFO order processing and management</CardDescription>
         </CardHeader>
         <CardContent>
-          <Empty description="No pending orders. Queue is empty!" />
+          <Empty>
+            <EmptyHeader>
+              <EmptyTitle>No pending orders</EmptyTitle>
+              <EmptyDescription>Queue is empty!</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         </CardContent>
       </Card>
     )
   }
 
+  // ── Table ─────────────────────────────────────────────────────────────────
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Print Queue</CardTitle>
-        <CardDescription>FIFO order processing and management ({orders.length} pending)</CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Print Queue</CardTitle>
+            <CardDescription>
+              FIFO order processing — {orders.length} pending
+            </CardDescription>
+          </div>
+          {/* Live indicator driven by parent's SSE connection */}
+          <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1
+            text-xs font-semibold border bg-emerald-500/10 border-emerald-500/30 text-emerald-400">
+            <Radio className="h-3 w-3 animate-pulse" />
+            Live
+          </span>
+        </div>
       </CardHeader>
+
       <CardContent>
         <div className="overflow-x-auto">
           <Table>
@@ -160,11 +148,18 @@ export function QueueTable({ refreshTrigger, onOrderUpdated }: QueueTableProps) 
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
             </TableHeader>
+
             <TableBody>
               {orders.map((order) => {
-                const nextAction = getNextAction(order.status)
+                const nextAction  = getNextAction(order.status)
+                const isFlashing  = flashedOrderId === String(order.id)
+                const flashClass  = isFlashing ? (FLASH_COLOUR[order.status] ?? 'bg-primary/5') : ''
+
                 return (
-                  <TableRow key={order.id}>
+                  <TableRow
+                    key={order.id}
+                    className={`transition-all duration-500 ${flashClass}`}
+                  >
                     <TableCell className="font-bold">#{order.tokenNumber}</TableCell>
                     <TableCell className="text-sm">{order.userName}</TableCell>
                     <TableCell className="text-sm max-w-xs truncate">{order.fileName}</TableCell>
@@ -174,7 +169,11 @@ export function QueueTable({ refreshTrigger, onOrderUpdated }: QueueTableProps) 
                     </TableCell>
                     <TableCell className="text-sm">{order.binding}</TableCell>
                     <TableCell>
-                      <Badge className={statusColor(order.status)}>
+                      <Badge
+                        className={`transition-colors duration-300 ${
+                          STATUS_COLOUR[order.status] ?? 'text-muted-foreground'
+                        } ${order.status === 'PRINTING' ? 'animate-pulse' : ''}`}
+                      >
                         {order.status.replace(/_/g, ' ')}
                       </Badge>
                     </TableCell>
@@ -183,10 +182,10 @@ export function QueueTable({ refreshTrigger, onOrderUpdated }: QueueTableProps) 
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => handleUpdateStatus(order.id, nextAction.nextStatus)}
-                          disabled={updatingId === order.id}
+                          onClick={() => handleUpdateStatus(String(order.id), nextAction.nextStatus)}
+                          disabled={updatingId === String(order.id)}
                         >
-                          {updatingId === order.id && (
+                          {updatingId === String(order.id) && (
                             <Loader2 className="mr-2 h-3 w-3 animate-spin" />
                           )}
                           {nextAction.label}
