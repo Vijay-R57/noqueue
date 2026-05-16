@@ -71,7 +71,6 @@ export function PrinterStatusPanel() {
     try {
       const res = await fetch(BACKEND_STATUS, {
         cache: 'no-store',
-        headers: getAuthHeader(),
       })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data: BackendPrinterStatus = await res.json()
@@ -108,7 +107,7 @@ export function PrinterStatusPanel() {
     try {
       const res = await fetch(BACKEND_CONNECT, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ printerName: selectedPrinter }),
       })
       const data = await res.json()
@@ -132,8 +131,7 @@ export function PrinterStatusPanel() {
     setDisconnectState('loading')
     try {
       await fetch(BACKEND_DISCONNECT, {
-        method: 'POST',
-        headers: getAuthHeader(),
+        method: 'POST'
       })
       showToast('info', 'Disconnect requested. Agent will revert to OS default.')
       setSelectedPrinter('')
