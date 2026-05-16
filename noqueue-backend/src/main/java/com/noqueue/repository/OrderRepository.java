@@ -20,5 +20,8 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     // Eagerly join-fetch the user to avoid N+1 when reading role/email.
     @Query("SELECT o FROM Order o JOIN FETCH o.user WHERE o.status = :status ORDER BY o.createdAt ASC")
     List<Order> findAllReadyToPrint(OrderStatus status);
+
+    @Query("SELECT o FROM Order o JOIN FETCH o.user WHERE o.status IN (:statuses) ORDER BY o.createdAt ASC")
+    List<Order> findAllByStatusIn(List<OrderStatus> statuses);
 }
 

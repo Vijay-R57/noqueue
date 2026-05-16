@@ -43,6 +43,26 @@ public class Order {
     @Enumerated(EnumType.STRING)
     private OrderStatus status;
 
+    // ── Payment fields ────────────────────────────────────────────────────────
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_method")
+    private PaymentMethod paymentMethod;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payment_status")
+    @Builder.Default
+    private PaymentStatus paymentStatus = PaymentStatus.PENDING;
+
+    /** External transaction reference (UPI/QR); null for CASH. */
+    @Column(name = "transaction_id")
+    private String transactionId;
+
+    @Column(name = "amount_paid")
+    private BigDecimal amountPaid;
+
+    // ── Timestamps ────────────────────────────────────────────────────────────
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 

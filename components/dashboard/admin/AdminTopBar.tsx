@@ -11,7 +11,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { LogOut, Shield, Printer } from 'lucide-react'
+import { LogOut, Shield, Printer, CreditCard } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface AdminTopBarProps {
@@ -62,6 +62,10 @@ export function AdminTopBar({ adminEmail }: AdminTopBarProps) {
           <DropdownMenuItem onClick={() => router.push('/admin/settings/printer')}>
             <Printer className="mr-2 h-4 w-4" />
             <span>Printer Settings</span>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => router.push('/admin/settings/payment')}>
+            <CreditCard className="mr-2 h-4 w-4" />
+            <span>Payment Settings</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout} className="text-destructive">

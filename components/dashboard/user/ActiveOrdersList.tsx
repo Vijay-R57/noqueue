@@ -38,6 +38,10 @@ const statusBadgeVariant = (status: string) => {
 
 const statusColor = (status: string) => {
   switch (status) {
+    case 'PAYMENT_PENDING':
+      return 'text-orange-600 dark:text-orange-400'
+    case 'CASH_PENDING':
+      return 'text-violet-600 dark:text-violet-400'
     case 'WAITING':
       return 'text-amber-600 dark:text-amber-400'
     case 'PAID':
@@ -105,6 +109,7 @@ export function ActiveOrdersList({ orders, isLoading }: ActiveOrdersListProps) {
                 <TableHead>Token</TableHead>
                 <TableHead>File Name</TableHead>
                 <TableHead>Pages</TableHead>
+                <TableHead>Payment</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
               </TableRow>
@@ -115,6 +120,18 @@ export function ActiveOrdersList({ orders, isLoading }: ActiveOrdersListProps) {
                   <TableCell className="font-bold">#{order.tokenNumber}</TableCell>
                   <TableCell className="text-sm">{order.fileName}</TableCell>
                   <TableCell className="text-sm">{order.pages}</TableCell>
+                  <TableCell className="text-sm">
+                    {order.paymentMethod ? (
+                      <span className="inline-flex items-center gap-1">
+                        <Badge variant="outline" className="text-xs">{order.paymentMethod}</Badge>
+                        {order.amountPaid != null && (
+                          <span className="text-xs text-muted-foreground">₹{order.amountPaid}</span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={statusBadgeVariant(order.status)} className={`transition-colors duration-300 ${statusColor(order.status)} ${order.status === 'PRINTING' ? 'animate-pulse' : ''}`}>
                       {order.status.replace(/_/g, ' ')}

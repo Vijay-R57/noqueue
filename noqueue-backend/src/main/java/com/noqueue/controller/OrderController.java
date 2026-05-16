@@ -37,6 +37,11 @@ public class OrderController {
         return ResponseEntity.ok(nextOrder);
     }
 
+    @GetMapping("/{id}/eta")
+    public ResponseEntity<com.noqueue.dto.EtaResponseDto> getOrderEta(@PathVariable Long id) {
+        return ResponseEntity.ok(orderService.calculateETA(id));
+    }
+
     @PutMapping("/{orderId}/status")
     public ResponseEntity<Order> updateOrderStatus(
             @PathVariable Long orderId,

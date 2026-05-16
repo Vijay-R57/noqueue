@@ -1,5 +1,11 @@
 // Order Status
-export type OrderStatus = 'WAITING' | 'PAID' | 'READY_TO_PRINT' | 'PRINTING' | 'COMPLETED' | 'FAILED'
+export type OrderStatus = 'PAYMENT_PENDING' | 'CASH_PENDING' | 'WAITING' | 'PAID' | 'READY_TO_PRINT' | 'PRINTING' | 'COMPLETED' | 'FAILED'
+
+// Payment Method
+export type PaymentMethod = 'UPI' | 'QR' | 'CASH'
+
+// Payment Status
+export type PaymentStatus = 'PENDING' | 'PAID' | 'FAILED'
 
 // Color Type
 export type ColorType = 'B&W' | 'Color'
@@ -77,6 +83,11 @@ export interface Order {
   status: OrderStatus
   tokenNumber: number
   createdAt: Date
+  // Payment fields
+  paymentMethod?: PaymentMethod
+  paymentStatus?: PaymentStatus
+  transactionId?: string
+  amountPaid?: number
 }
 
 // API Response Types
@@ -116,4 +127,12 @@ export interface Template {
   fileName?: string // for file templates only
   fileUrl?: string // for file templates only
   createdAt: Date
+}
+
+// Payment Configuration
+export interface PaymentConfig {
+  upiId: string
+  merchantName: string
+  cashEnabled: boolean
+  qrImageBase64: string | null
 }

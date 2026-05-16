@@ -1,7 +1,6 @@
 package com.noqueue.service;
 
 import com.noqueue.dto.OrderEventDto;
-import com.noqueue.dto.OrderRequest;
 import com.noqueue.model.Order;
 import com.noqueue.model.OrderStatus;
 import com.noqueue.model.User;
@@ -66,7 +65,8 @@ public class OrderService {
                 .price(price)
                 .tokenNumber(UUID.randomUUID().toString().substring(0, 8).toUpperCase())
                 .priority(user.getRole().getPriority())
-                .status(OrderStatus.WAITING)
+                .status(OrderStatus.PAYMENT_PENDING)   // awaits payment before queue entry
+                .paymentStatus(com.noqueue.model.PaymentStatus.PENDING)
                 .build();
 
         Order saved = orderRepository.save(order);
@@ -146,6 +146,90 @@ public class OrderService {
         return saved;
     }
 
+    // ── ETA Engine ────────────────────────────────────────────────────────────
+
+    public com.noqueue.dto.EtaResponseDto calculateETA(Long orderId) {
+        Order targetOrder = orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Order not found"));
+
+        if (targetOrder.getStatus() == OrderStatus.COMPLETED || targetOrder.getStatus() == OrderStatus.FAILED) {
+            return com.noqueue.dto.EtaResponseDto.builder()
+                    .queuePosition(0)
+                    .estimatedMinutes(0)
+                    .expectedCompletion(targetOrder.getUpdatedAt() != null ? targetOrder.getUpdatedAt() : LocalDateTime.now())
+                    .build();
+        }
+
+        if (targetOrder.getStatus() == OrderStatus.PRINTING) {
+            int minutes = calculateProcessingTime(targetOrder);
+            return com.noqueue.dto.EtaResponseDto.builder()
+                    .queuePosition(0)
+                    .estimatedMinutes(minutes)
+                    .expectedCompletion(LocalDateTime.now().plusMinutes(minutes))
+                    .build();
+        }
+
+        // Target is pending (WAITING, PAID, READY_TO_PRINT)
+        int totalMinutes = 0;
+
+        // 1. Calculate time for currently PRINTING jobs (printer state)
+        List<Order> printingJobs = orderRepository.findAllReadyToPrint(OrderStatus.PRINTING);
+        for (Order p : printingJobs) {
+            totalMinutes += calculateProcessingTime(p);
+        }
+
+        // 2. Fetch all candidates
+        List<OrderStatus> pendingStatuses = List.of(
+                OrderStatus.PAYMENT_PENDING,
+                OrderStatus.CASH_PENDING,
+                OrderStatus.WAITING,
+                OrderStatus.PAID,
+                OrderStatus.READY_TO_PRINT
+        );
+        List<Order> pendingJobs = orderRepository.findAllByStatusIn(pendingStatuses);
+
+        // Sort them using hybrid scheduler logic to simulate queue order (lowest score first)
+        pendingJobs.sort((o1, o2) -> Double.compare(
+                hybridScheduler.calculateScore(o1),
+                hybridScheduler.calculateScore(o2)
+        ));
+
+        // Find position of our target order in the sorted queue
+        int position = 1;
+        for (Order p : pendingJobs) {
+            if (p.getId().equals(orderId)) {
+                totalMinutes += calculateProcessingTime(p);
+                break;
+            }
+            totalMinutes += calculateProcessingTime(p);
+            position++;
+        }
+
+        return com.noqueue.dto.EtaResponseDto.builder()
+                .queuePosition(position)
+                .estimatedMinutes(totalMinutes)
+                .expectedCompletion(LocalDateTime.now().plusMinutes(totalMinutes))
+                .build();
+    }
+
+    private int calculateProcessingTime(Order order) {
+        double minutes = 0;
+        if ("Color".equalsIgnoreCase(order.getColorType())) {
+            minutes = (order.getPages() != null ? order.getPages() : 1) / 10.0;
+        } else {
+            minutes = (order.getPages() != null ? order.getPages() : 1) / 20.0;
+        }
+
+        if ("Spiral".equalsIgnoreCase(order.getBinding())) {
+            minutes += 3;
+        } else if ("Soft".equalsIgnoreCase(order.getBinding())) {
+            minutes += 2;
+        }
+
+        // Return at least 1 minute for any job
+        return Math.max(1, (int) Math.ceil(minutes));
+    }
+
     // ── Manual status update (admin / print-agent callback) ────────────────
 
     public Order updateOrderStatus(Long orderId, OrderStatus status) {
@@ -167,6 +251,7 @@ public class OrderService {
                 .orderId(order.getId())
                 .tokenNumber(order.getTokenNumber())
                 .status(order.getStatus())
+                .paymentStatus(order.getPaymentStatus())
                 .userName(order.getUser().getEmail())
                 .updatedAt(order.getUpdatedAt() != null ? order.getUpdatedAt() : LocalDateTime.now())
                 .build();

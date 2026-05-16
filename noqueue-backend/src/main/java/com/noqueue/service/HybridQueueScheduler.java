@@ -63,7 +63,7 @@ public class HybridQueueScheduler {
         }
 
         return candidates.stream()
-                .min(Comparator.comparingDouble(this::effectiveScore));
+                .min(Comparator.comparingDouble(this::calculateScore));
     }
 
     // ── Scoring ───────────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ public class HybridQueueScheduler {
      *
      * Lower score = higher scheduling priority.
      */
-    double effectiveScore(Order order) {
+    public double calculateScore(Order order) {
         Role   role            = order.getUser().getRole();
         int    roleWeight      = role.getPriorityWeight();
         int    pages           = order.getPages() != null  ? order.getPages() : 1;

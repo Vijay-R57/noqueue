@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { updateOrderStatus } from '@/services/api'
+import { updateOrderStatus, confirmCashPayment } from '@/services/api'
 import { Order, OrderStatus } from '@/lib/types'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import {
@@ -28,6 +28,8 @@ interface QueueTableProps {
 
 // ── Status colour mapping ─────────────────────────────────────────────────────
 const STATUS_COLOUR: Record<string, string> = {
+  PAYMENT_PENDING: 'text-orange-600 dark:text-orange-400',
+  CASH_PENDING:    'text-violet-600 dark:text-violet-400',
   WAITING:        'text-amber-600 dark:text-amber-400',
   PAID:           'text-blue-600 dark:text-blue-400',
   READY_TO_PRINT: 'text-indigo-600 dark:text-indigo-400',
@@ -43,8 +45,10 @@ const FLASH_COLOUR: Record<string, string> = {
   FAILED:    'bg-red-500/10 border-l-2 border-red-400',
 }
 
-function getNextAction(status: OrderStatus): { label: string; nextStatus: OrderStatus } | null {
+function getNextAction(status: OrderStatus): { label: string; nextStatus: OrderStatus; isCash?: boolean } | null {
   switch (status) {
+    case 'CASH_PENDING':
+      return { label: 'Confirm Cash', nextStatus: 'READY_TO_PRINT', isCash: true }
     case 'WAITING':
     case 'PAID':
       return { label: 'Mark Ready', nextStatus: 'READY_TO_PRINT' }
@@ -60,11 +64,15 @@ function getNextAction(status: OrderStatus): { label: string; nextStatus: OrderS
 export function QueueTable({ orders, isLoading, flashedOrderId, onOrderUpdated }: QueueTableProps) {
   const [updatingId, setUpdatingId] = useState<string | null>(null)
 
-  const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus) => {
+  const handleUpdateStatus = async (orderId: string, newStatus: OrderStatus, isCash?: boolean) => {
     setUpdatingId(orderId)
     try {
-      await updateOrderStatus(orderId, newStatus)
-      // SSE event from the backend will drive the UI update — no local setState needed
+      if (isCash) {
+        await confirmCashPayment(orderId)
+        toast.success('Cash confirmed! Order has entered the print queue.')
+      } else {
+        await updateOrderStatus(orderId, newStatus)
+      }
       onOrderUpdated()
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update order'
@@ -144,6 +152,7 @@ export function QueueTable({ orders, isLoading, flashedOrderId, onOrderUpdated }
                 <TableHead>Pages</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Binding</TableHead>
+                <TableHead>Payment</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Action</TableHead>
               </TableRow>
@@ -168,6 +177,13 @@ export function QueueTable({ orders, isLoading, flashedOrderId, onOrderUpdated }
                       {order.colorType} / {order.printType}
                     </TableCell>
                     <TableCell className="text-sm">{order.binding}</TableCell>
+                    <TableCell className="text-sm">
+                      {order.paymentMethod ? (
+                        <Badge variant="outline" className="text-xs">
+                          {order.paymentMethod}
+                        </Badge>
+                      ) : '—'}
+                    </TableCell>
                     <TableCell>
                       <Badge
                         className={`transition-colors duration-300 ${
@@ -181,8 +197,8 @@ export function QueueTable({ orders, isLoading, flashedOrderId, onOrderUpdated }
                       {nextAction && (
                         <Button
                           size="sm"
-                          variant="outline"
-                          onClick={() => handleUpdateStatus(String(order.id), nextAction.nextStatus)}
+                          variant={nextAction.isCash ? 'default' : 'outline'}
+                          onClick={() => handleUpdateStatus(String(order.id), nextAction.nextStatus, nextAction.isCash)}
                           disabled={updatingId === String(order.id)}
                         >
                           {updatingId === String(order.id) && (

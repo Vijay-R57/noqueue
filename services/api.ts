@@ -1,4 +1,4 @@
-import { Order, LoginResponse, StatsResponse, OrderStatus, PricingConfig, Template, ColorType, PrintType, BindingType, TemplateType } from '@/lib/types'
+import { Order, LoginResponse, StatsResponse, OrderStatus, PricingConfig, Template, ColorType, PrintType, BindingType, TemplateType, PaymentMethod, PaymentStatus, PaymentConfig } from '@/lib/types'
 import { isAdmin, findUserByEmail } from '@/lib/auth'
 
 // Storage Keys
@@ -102,7 +102,8 @@ export async function placeOrder(
     id: `order_${Date.now()}_${Math.random()}`,
     tokenNumber: getNextTokenNumber(),
     createdAt: new Date(),
-    status: 'PAID', // Auto-mark as paid on creation
+    status: 'PAYMENT_PENDING', // Awaits payment before entering queue
+    paymentStatus: 'PENDING',
   }
 
   const orders = getStoredOrders()
@@ -228,6 +229,129 @@ export async function deleteTemplate(id: string): Promise<void> {
   const templates = getStoredTemplates()
   const filtered = templates.filter((t) => t.id !== id)
   saveTemplates(filtered)
+}
+
+// ===== Payment =====
+
+export interface PaymentInitiateResult {
+  orderId: string
+  tokenNumber: number
+  orderStatus: OrderStatus
+  paymentMethod: PaymentMethod
+  paymentStatus: PaymentStatus
+  message: string
+  /** UPI URI string (for QR code rendering) or deep-link (for UPI) */
+  qrData?: string
+}
+
+/**
+ * Initiates payment for a PAYMENT_PENDING order.
+ * - UPI  → returns a UPI deep-link in qrData
+ * - QR   → returns a UPI URI string to render as QR code
+ * - CASH → immediately moves order to CASH_PENDING
+ */
+export async function initiatePayment(
+  orderId: string,
+  paymentMethod: PaymentMethod,
+  upiId?: string
+): Promise<PaymentInitiateResult> {
+  await new Promise((resolve) => setTimeout(resolve, 400))
+
+  const orders = getStoredOrders()
+  const order = orders.find((o) => o.id === orderId)
+  if (!order) throw new Error('Order not found')
+  if (order.status !== 'PAYMENT_PENDING') throw new Error('Order is not in PAYMENT_PENDING state')
+
+  order.paymentMethod = paymentMethod
+
+  let qrData: string | undefined
+  let message: string
+
+  if (paymentMethod === 'CASH') {
+    order.status = 'CASH_PENDING'
+    message = 'Cash on Receive selected. Proceed to the shop for payment.'
+  } else if (paymentMethod === 'QR') {
+    qrData = `upi://pay?pa=shopowner@upi&pn=NoQueue+Print+Shop&am=${order.price.toFixed(2)}&cu=INR&tn=Order+${order.tokenNumber}`
+    message = 'Scan the QR code with any UPI app to pay.'
+  } else {
+    // UPI
+    const pa = upiId ?? 'shopowner@upi'
+    qrData = `upi://pay?pa=${pa}&pn=NoQueue+Print+Shop&am=${order.price.toFixed(2)}&cu=INR&tn=Order+${order.tokenNumber}`
+    message = 'Complete the UPI payment and submit the transaction ID.'
+  }
+
+  saveOrders(orders)
+
+  return {
+    orderId: order.id,
+    tokenNumber: order.tokenNumber,
+    orderStatus: order.status,
+    paymentMethod,
+    paymentStatus: order.paymentStatus ?? 'PENDING',
+    message,
+    qrData,
+  }
+}
+
+/**
+ * Verifies UPI / QR payment using the transaction ID provided by the user.
+ * Moves order → PAID → READY_TO_PRINT.
+ */
+export async function verifyPayment(
+  orderId: string,
+  transactionId: string
+): Promise<PaymentInitiateResult> {
+  await new Promise((resolve) => setTimeout(resolve, 500))
+
+  const orders = getStoredOrders()
+  const order = orders.find((o) => o.id === orderId)
+  if (!order) throw new Error('Order not found')
+  if (order.status !== 'PAYMENT_PENDING')
+    throw new Error('Order is not in PAYMENT_PENDING state')
+
+  order.transactionId = transactionId
+  order.amountPaid = order.price
+  order.paymentStatus = 'PAID'
+  order.status = 'READY_TO_PRINT' // enters print queue
+
+  saveOrders(orders)
+
+  return {
+    orderId: order.id,
+    tokenNumber: order.tokenNumber,
+    orderStatus: order.status,
+    paymentMethod: order.paymentMethod!,
+    paymentStatus: 'PAID',
+    message: 'Payment verified! Your order has entered the print queue.',
+  }
+}
+
+/**
+ * Admin: confirm cash collected for a CASH_PENDING order.
+ * Moves order → PAID → READY_TO_PRINT.
+ */
+export async function confirmCashPayment(orderId: string): Promise<PaymentInitiateResult> {
+  await new Promise((resolve) => setTimeout(resolve, 300))
+
+  const orders = getStoredOrders()
+  const order = orders.find((o) => o.id === orderId)
+  if (!order) throw new Error('Order not found')
+  if (order.status !== 'CASH_PENDING') throw new Error('Order is not in CASH_PENDING state')
+
+  order.amountPaid = order.price
+  order.paymentStatus = 'PAID'
+  order.status = 'READY_TO_PRINT' // enters print queue
+
+  saveOrders(orders)
+
+  return {
+    orderId: order.id,
+    tokenNumber: order.tokenNumber,
+    orderStatus: order.status,
+    paymentMethod: 'CASH',
+    paymentStatus: 'PAID',
+    message: 'Cash payment confirmed. Order has entered the print queue.',
+  }
 }
 
 // ===== Pricing Calculation =====
@@ -442,4 +566,31 @@ export function seedMockData(): void {
 
     saveTemplates(mockTemplates)
   }
+}
+
+// ── Payment Config ─────────────────────────────────────────────────────────
+
+// Initialize local storage mock
+const getLocalConfig = (): PaymentConfig => {
+  const stored = localStorage.getItem('noqueue_payment_config')
+  if (stored) return JSON.parse(stored)
+  return {
+    upiId: 'shopowner@upi',
+    merchantName: 'NoQueue Print Shop',
+    cashEnabled: true,
+    qrImageBase64: null,
+  }
+}
+
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms))
+
+export async function getPaymentConfig(): Promise<PaymentConfig> {
+  await delay(300)
+  return getLocalConfig()
+}
+
+export async function updatePaymentConfig(config: PaymentConfig): Promise<PaymentConfig> {
+  await delay(500)
+  localStorage.setItem('noqueue_payment_config', JSON.stringify(config))
+  return config
 }

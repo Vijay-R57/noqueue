@@ -117,11 +117,6 @@ export function LoginForm() {
               )}
             </Button>
 
-            <div className="space-y-2 text-sm text-muted-foreground">
-              <p>Demo credentials:</p>
-              <p className="font-mono">Admin: admin@noqueue.com / admin123</p>
-              <p className="font-mono">User: user@noqueue.com / user123</p>
-            </div>
           </form>
         </Form>
 
