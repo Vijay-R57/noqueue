@@ -26,6 +26,8 @@ public class SecurityConfig {
                 .csrf(AbstractHttpConfigurer::disable)
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/api/v1/auth/**").permitAll()
+                        .requestMatchers("/api/v1/health").permitAll()          // startup health check
+                        .requestMatchers("/api/v1/printer/heartbeat").permitAll() // agent heartbeat (pre-auth)
                         .requestMatchers("/api/v1/events/**").permitAll()  // SSE — EventSource can't set headers
                         .anyRequest().authenticated()
                 )

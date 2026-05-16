@@ -66,21 +66,27 @@ public class NoQueueAgentLauncher {
             return;
         }
 
-        // ── 5. Authenticate ─────────────────────────────────────────────────
-        LoggerUtil.info("[STEP 1] Authenticating with backend...");
+        // ── 5. Wait for backend to be healthy ───────────────────────────────
+        LoggerUtil.info("[STEP 1] Waiting for backend to be reachable...");
+        waitForBackend();
+        LoggerUtil.info("[INFO] Backend reachable");
+
+        // ── 6. Authenticate ─────────────────────────────────────────────────
+        LoggerUtil.info("[STEP 2] Authenticating with backend...");
         int authAttempts = 0;
         while (Config.AUTH_TOKEN.isEmpty()) {
             if (authAttempts++ > 3) {
-                LoggerUtil.error("[STEP 1] Authentication failed after 3 attempts. Exiting.");
+                LoggerUtil.error("[STEP 2] Authentication failed after 3 attempts. Exiting.");
                 System.exit(1);
             }
             boolean ok = apiService.login();
             if (!ok) {
-                LoggerUtil.error("[STEP 1] Login failed. Retrying in 10s...");
+                LoggerUtil.error("[STEP 2] Login failed. Retrying in 10s...");
                 Thread.sleep(10_000);
             }
         }
-        LoggerUtil.info("[STEP 1] Authentication OK.");
+        LoggerUtil.info("[STEP 2] Authentication OK.");
+        LoggerUtil.info("[INFO] Agent connected");
 
         // ── 6. Detect printer ────────────────────────────────────────────────
         LoggerUtil.info("[STEP 2] Detecting printers...");
@@ -100,7 +106,7 @@ public class NoQueueAgentLauncher {
         LoggerUtil.info("[STEP 4] Starting Heartbeat Service...");
         HeartbeatService heartbeat = new HeartbeatService(printerService, isPrinting, isPaused);
         heartbeat.start();
-        LoggerUtil.info("[INFO] Connected to backend");
+        LoggerUtil.info("[INFO] Heartbeat active");
 
         // ── 9. Start Queue Worker ─────────────────────────────────────────────
         LoggerUtil.info("[STEP 5] Starting Queue Worker...");
@@ -116,14 +122,16 @@ public class NoQueueAgentLauncher {
     }
 
     // ── Lock: prevents two agent processes running at once ──────────────────
-    private static FileLock globalLock;
-    private static FileChannel lockChannel;
+    private static FileLock         globalLock;
+    private static FileChannel       lockChannel;
+    private static RandomAccessFile  lockRaf;
 
     private static boolean acquireLock() {
         try {
             File lockFile = new File(Config.TEMP_DIR + "/" + LOCK_FILE);
             lockFile.getParentFile().mkdirs();
-            lockChannel = new RandomAccessFile(lockFile, "rw").getChannel();
+            lockRaf     = new RandomAccessFile(lockFile, "rw");
+            lockChannel = lockRaf.getChannel();
             globalLock  = lockChannel.tryLock();
             return globalLock != null;
         } catch (Exception e) {
@@ -146,6 +154,7 @@ public class NoQueueAgentLauncher {
             try {
                 if (globalLock  != null) globalLock.release();
                 if (lockChannel != null) lockChannel.close();
+                if (lockRaf     != null) lockRaf.close();
             } catch (Exception ignored) {}
             LoggerUtil.info("[SHUTDOWN] Agent stopped cleanly.");
         }, "shutdown-hook"));
@@ -167,5 +176,27 @@ public class NoQueueAgentLauncher {
         LoggerUtil.info("║    NoQueue Print Agent v2.0              ║");
         LoggerUtil.info("║    Production-Grade Auto-Launcher        ║");
         LoggerUtil.info("╚══════════════════════════════════════════╝");
+    }
+
+    /** Blocks until GET /api/v1/health returns 200, retrying every 5 seconds. */
+    private static void waitForBackend() {
+        String healthUrl = Config.BASE_URL + "/health";
+        while (true) {
+            try {
+                java.net.HttpURLConnection conn =
+                    (java.net.HttpURLConnection) new java.net.URL(healthUrl).openConnection();
+                conn.setConnectTimeout(3000);
+                conn.setReadTimeout(3000);
+                conn.setRequestMethod("GET");
+                int code = conn.getResponseCode();
+                conn.disconnect();
+                if (code == 200) return;
+            } catch (Exception ignored) {}
+            LoggerUtil.info("[STEP 1] Backend not ready yet. Retrying in 5s...");
+            try { Thread.sleep(5000); } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 }
