@@ -4,12 +4,14 @@ import com.noqueue.dto.HeartbeatDto;
 import com.noqueue.model.PrinterStatus;
 import com.noqueue.repository.PrinterStatusRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.Optional;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class PrinterStatusService {
@@ -33,6 +35,11 @@ public class PrinterStatusService {
         status.setLastPing(Instant.now());
 
         repository.save(status);
+
+        // Structured heartbeat log
+        log.info("[HEARTBEAT] Agent online: {}", dto.isAgentOnline());
+        log.info("[PRINTER]   {}", dto.getPrinterName() != null ? dto.getPrinterName() : "None");
+        log.info("[STATE]     {}", dto.getPrinterState() != null ? dto.getPrinterState() : "UNKNOWN");
     }
 
     // ── Called by Admin UI to request printer connection ────────────────────
