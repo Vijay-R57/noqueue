@@ -1,6 +1,7 @@
 plugins {
     id 'java'
     id 'application'
+    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 group = 'com.noqueue.agent'
@@ -16,7 +17,7 @@ dependencies {
 }
 
 application {
-    mainClass = 'com.noqueue.agent.Main'
+    mainClass = 'com.noqueue.agent.NoQueueAgentLauncher'
     applicationDefaultJvmArgs = ['-Dfile.encoding=UTF-8']
 }
 

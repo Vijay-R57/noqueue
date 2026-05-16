@@ -49,6 +49,30 @@ public class QueueWorker implements Runnable {
                     continue;
                 }
 
+                // ── Auto-detect: poll backend for connect requests ──────────────
+                try {
+                    com.google.gson.JsonObject config = apiService.fetchPrinterConfig();
+                    if (config != null
+                            && config.has("connectRequested")
+                            && config.get("connectRequested").getAsBoolean()) {
+
+                        String targetPrinter = config.has("configuredPrinterName")
+                                ? config.get("configuredPrinterName").getAsString()
+                                : "";
+
+                        if (!targetPrinter.isBlank()) {
+                            String matched = printerService.setActivePrinter(targetPrinter);
+                            if (matched != null) {
+                                LoggerUtil.info("[WORKER] Auto-connected to printer: \"" + matched + "\"");
+                            } else {
+                                LoggerUtil.error("[WORKER] Auto-connect failed: printer not found: \"" + targetPrinter + "\"");
+                            }
+                        }
+                    }
+                } catch (Exception configEx) {
+                    // Non-fatal — continue polling queue
+                }
+
                 Order job = apiService.fetchNextJob();
 
                 if (job == null) {

@@ -145,6 +145,31 @@ public class ApiService {
         }
     }
 
+    // ── GET /printer/config ── Poll for admin connect requests ───────────────
+    public JsonObject fetchPrinterConfig() {
+        try {
+            URL url = new URL(Config.BASE_URL + "/printer/config");
+            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
+            conn.setConnectTimeout(3000);
+            conn.setReadTimeout(3000);
+            conn.setRequestMethod("GET");
+            conn.setRequestProperty("Accept", "application/json");
+            addAuthHeader(conn);
+
+            if (conn.getResponseCode() == 200) {
+                InputStreamReader reader = new InputStreamReader(conn.getInputStream());
+                JsonObject result = gson.fromJson(reader, JsonObject.class);
+                reader.close();
+                conn.disconnect();
+                return result;
+            }
+            conn.disconnect();
+        } catch (Exception e) {
+            LoggerUtil.info("[API] Could not fetch printer config: " + e.getMessage());
+        }
+        return null;
+    }
+
     // ── PUT /orders/{id}/status?status=XYZ ───────────────────────────────
     public boolean updateJobStatus(Long orderId, String status) {
         return updateJobStatusInternal(orderId, status, false);
