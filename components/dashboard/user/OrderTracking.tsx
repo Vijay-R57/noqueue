@@ -14,11 +14,14 @@ interface OrderTrackingProps {
 const STEP_ORDER: OrderStatus[] = ['WAITING', 'PAID', 'READY_TO_PRINT', 'PRINTING', 'COMPLETED']
 
 const STEP_LABELS: Record<OrderStatus, string> = {
+  PAYMENT_PENDING: 'Payment Pending',
+  CASH_PENDING: 'Cash Pending',
   WAITING: 'Waiting',
   PAID: 'Paid',
   READY_TO_PRINT: 'Ready to Print',
   PRINTING: 'Printing',
   COMPLETED: 'Completed',
+  FAILED: 'Failed',
 }
 
 export function OrderTracking({ orders, isLoading }: OrderTrackingProps) {

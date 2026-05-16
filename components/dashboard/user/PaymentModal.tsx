@@ -367,7 +367,7 @@ export function PaymentModal({
                     <p>🎟️ <strong>Token:</strong> #{tokenNumber}</p>
                     <p>💳 <strong>Method:</strong> {successResult.paymentMethod}</p>
                     {successResult.paymentMethod !== 'CASH' && (
-                      <p>🔖 <strong>Txn ID:</strong> {successResult.paymentMethod === 'CASH' ? '–' : txnId}</p>
+                      <p>🔖 <strong>Txn ID:</strong> {txnId}</p>
                     )}
                     <p>✅ <strong>Status:</strong> READY TO PRINT</p>
                   </div>
