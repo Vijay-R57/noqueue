@@ -2,7 +2,6 @@
 :: ============================================================
 :: NoQueue Full-Stack Launcher
 :: Starts Backend → waits for healthy → starts Print Agent
-:: Place this in: b_ZANqG4V0xjf\ (the root workspace folder)
 :: ============================================================
 
 setlocal enabledelayedexpansion
@@ -14,90 +13,107 @@ set "LOG_DIR=%ROOT%logs"
 set "BACKEND_LOG=%LOG_DIR%\backend.log"
 set "AGENT_LOG=%LOG_DIR%\agent.log"
 set "BACKEND_URL=http://localhost:8080/api/v1/health"
-set "BACKEND_WAIT_SEC=60"
+set /a BACKEND_WAIT_SEC=180
+set /a elapsed=0
 
-:: ── Create logs directory ────────────────────────────────────
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 echo ============================================================
-echo   NoQueue Local Startup
-echo   %date% %time%
+echo   NoQueue Local Startup  ^|  %date% %time%
 echo ============================================================
 echo.
 
-:: ── Check Java ───────────────────────────────────────────────
+:: ── [1] Java check ───────────────────────────────────────────
 echo [1/4] Checking Java...
 java -version >nul 2>&1
-if errorlevel 1 (
-    echo [ERROR] Java not found. Install Java 17+ and add it to PATH.
-    pause & exit /b 1
-)
+if errorlevel 1 ( echo [ERROR] Java 17+ not found. & pause & exit /b 1 )
 echo       Java OK.
 
-:: ── STEP 2: Start Spring Boot Backend ────────────────────────
-echo [2/4] Starting Spring Boot backend...
-if not exist "%BACKEND_DIR%\gradlew.bat" (
-    echo [ERROR] Backend not found at: %BACKEND_DIR%
-    pause & exit /b 1
+:: ── [2] Backend: skip if already healthy ─────────────────────
+echo [2/4] Checking backend...
+powershell -NoProfile -NonInteractive -Command ^
+  "try{if((Invoke-WebRequest '%BACKEND_URL%' -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200){exit 0}exit 1}catch{exit 1}" >nul 2>&1
+
+if %errorlevel% == 0 (
+    echo       [OK] Backend already healthy. Skipping launch.
+    goto BACKEND_HEALTHY
 )
 
-start "NoQueue Backend" /MIN cmd /c "cd /d "%BACKEND_DIR%" && .\gradlew.bat bootRun >> "%BACKEND_LOG%" 2>&1"
+:: Check port conflict
+for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":8080 " ^| findstr "LISTENING"') do (
+    echo [WARN] Port 8080 in use by PID %%p.
+    echo        Killing it now...
+    taskkill /PID %%p /F >nul 2>&1
+    ping 127.0.0.1 -n 3 >nul
+)
 
-echo       Backend process started. Waiting for it to be healthy...
-echo       (Logs: %BACKEND_LOG%)
+:: Start backend minimized
+if not exist "%BACKEND_DIR%\gradlew.bat" (
+    echo [ERROR] Backend not found: %BACKEND_DIR%
+    pause & exit /b 1
+)
+start "NoQueue Backend" /MIN cmd /c "cd /d "%BACKEND_DIR%" && gradlew.bat bootRun >> "%BACKEND_LOG%" 2>&1"
+echo       Backend launched. Waiting for Spring Boot to start...
+echo       (tail logs: %BACKEND_LOG%)
 echo.
 
-:: ── STEP 3: Wait for backend health ──────────────────────────
-echo [3/4] Polling %BACKEND_URL%
-set /a elapsed=0
+:: ── [3] Wait loop — uses ping for portable sleep ─────────────
+echo [3/4] Polling health endpoint (up to %BACKEND_WAIT_SEC%s)...
 
 :WAIT_LOOP
-timeout /t 3 /nobreak >nul
+ping 127.0.0.1 -n 4 >nul
 set /a elapsed+=3
 
-:: Use PowerShell to check the HTTP endpoint
-powershell -NoProfile -Command ^
-  "try { $r=(Invoke-WebRequest -Uri '%BACKEND_URL%' -TimeoutSec 2 -UseBasicParsing).StatusCode; if($r -eq 200){exit 0} exit 1 } catch { exit 1 }" >nul 2>&1
+powershell -NoProfile -NonInteractive -Command ^
+  "try{if((Invoke-WebRequest '%BACKEND_URL%' -TimeoutSec 2 -UseBasicParsing).StatusCode -eq 200){exit 0}exit 1}catch{exit 1}" >nul 2>&1
 
 if %errorlevel% == 0 goto BACKEND_HEALTHY
 
 if %elapsed% GEQ %BACKEND_WAIT_SEC% (
-    echo [ERROR] Backend did not become healthy within %BACKEND_WAIT_SEC%s.
-    echo         Check logs: %BACKEND_LOG%
+    echo.
+    echo [ERROR] Backend not healthy after %BACKEND_WAIT_SEC%s. Last log:
+    powershell -NoProfile -NonInteractive -Command "Get-Content '%BACKEND_LOG%' -Tail 15 -ErrorAction SilentlyContinue"
     pause & exit /b 1
 )
 
-echo       Still waiting... (%elapsed%s elapsed)
+set /a mod=%elapsed% %% 12
+if %mod% == 0 echo       Still waiting... (%elapsed%s ^| compiling Spring Boot)
 goto WAIT_LOOP
 
 :BACKEND_HEALTHY
-echo       [OK] Backend is HEALTHY after %elapsed%s!
+echo       [OK] Backend HEALTHY! (%elapsed%s)
 echo.
 
-:: ── STEP 4: Start Print Agent ─────────────────────────────────
+:: ── [4] Agent: skip if already on 9090 ───────────────────────
 echo [4/4] Starting Print Agent...
-if not exist "%AGENT_DIR%\gradlew.bat" (
-    echo [WARN] Print agent not found at: %AGENT_DIR% — skipping.
+
+for /f "tokens=5" %%p in ('netstat -ano 2^>nul ^| findstr ":9090 " ^| findstr "LISTENING"') do (
+    echo       [OK] Agent already running on :9090. Skipping.
     goto DONE
 )
 
-start "NoQueue Agent" /MIN cmd /c "cd /d "%AGENT_DIR%" && .\gradlew.bat run >> "%AGENT_LOG%" 2>&1"
+if not exist "%AGENT_DIR%\gradlew.bat" (
+    echo [WARN] Agent not found: %AGENT_DIR% — skipping.
+    goto DONE
+)
 
-echo       Agent process started.
+start "NoQueue Agent" /MIN cmd /c "cd /d "%AGENT_DIR%" && gradlew.bat run >> "%AGENT_LOG%" 2>&1"
+echo       Agent launched. Heartbeat will appear in dashboard ~10s.
 echo       (Logs: %AGENT_LOG%)
-echo.
 
 :DONE
+echo.
 echo ============================================================
-echo   NoQueue is starting up!
+echo   NoQueue is UP!
 echo ============================================================
 echo.
-echo   Backend:   http://localhost:8080
-echo   Frontend:  http://localhost:3000  (start separately with: pnpm dev)
-echo   Agent Log: %AGENT_LOG%
-echo   Backend Log: %BACKEND_LOG%
+echo   Backend  : http://localhost:8080
+echo   Health   : http://localhost:8080/api/v1/health
+echo   Frontend : http://localhost:3000  (pnpm dev)
 echo.
-echo   Admin heartbeat will be visible in the dashboard in ~10s.
+echo   Logs:
+echo     %BACKEND_LOG%
+echo     %AGENT_LOG%
 echo.
 pause
 endlocal

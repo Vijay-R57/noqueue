@@ -36,13 +36,13 @@ if errorlevel 1 (
 )
 echo       Java OK.
 
-:: ── Step 3: Create logs directory ───────────────────────────
+:: ── Step 3: Create directories ───────────────────────────────
 echo [3/5] Creating logs and temp directories...
-if not exist "%LOG_DIR%"          mkdir "%LOG_DIR%"
+if not exist "%LOG_DIR%"              mkdir "%LOG_DIR%"
 if not exist "%ROOT%print-agent\temp" mkdir "%ROOT%print-agent\temp"
 echo       Created.
 
-:: ── Step 4: Register startup shortcut ───────────────────────
+:: ── Step 4: Register Windows Startup shortcut ────────────────
 echo [4/5] Registering Windows startup shortcut...
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
@@ -63,7 +63,7 @@ if exist "%SHORTCUT_PATH%" (
     echo         %STARTUP_FOLDER%
 )
 
-:: ── Step 5: Start immediately ─────────────────────────────────
+:: ── Step 5: Launch now ────────────────────────────────────────
 echo [5/5] Launching NoQueue now...
 echo.
 start "" "%START_SCRIPT%"
@@ -73,7 +73,7 @@ echo ============================================================
 echo   Installation Complete!
 echo ============================================================
 echo.
-echo   NoQueue will now start AUTOMATICALLY on every Windows boot.
+echo   NoQueue will start AUTOMATICALLY on every Windows boot.
 echo.
 echo   Files:
 echo     Startup shortcut : %SHORTCUT_PATH%
